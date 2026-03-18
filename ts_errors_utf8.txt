@@ -1,0 +1,16 @@
+﻿src/pages/Dashboard.tsx(3,74): error TS6133: 'MessageSquare' is declared but its value is never read.
+src/pages/Reminders/ReminderCentre.tsx(72,19): error TS18048: 'reminder.customer' is possibly 'undefined'.
+src/pages/Reminders/ReminderCentre.tsx(92,13): error TS2339: Property 'deleteReminder' does not exist on type '{ getSettings: () => AppSettings; saveSettings: (settings: AppSettings) => void; migrateData: () => void; getCustomers: () => Customer[]; getCustomer: (id: string) => Customer | undefined; ... 13 more ...; clearAll: () => void; }'.
+src/pages/Subscriptions/Subscriptions.tsx(3,11): error TS6133: 'Calendar' is declared but its value is never read.
+src/pages/Subscriptions/Subscriptions.tsx(3,21): error TS6133: 'ChevronRight' is declared but its value is never read.
+src/pages/Subscriptions/Subscriptions.tsx(4,19): error TS6133: 'Filter' is declared but its value is never read.
+src/pages/Subscriptions/Subscriptions.tsx(4,40): error TS6133: 'MessageSquare' is declared but its value is never read.
+src/pages/Subscriptions/Subscriptions.tsx(5,33): error TS6133: 'MoreHorizontal' is declared but its value is never read.
+src/pages/Subscriptions/Subscriptions.tsx(5,49): error TS6133: 'Trash2' is declared but its value is never read.
+src/pages/Subscriptions/Subscriptions.tsx(7,10): error TS6133: 'Link' is declared but its value is never read.
+src/pages/Subscriptions/Subscriptions.tsx(10,1): error TS6133: 'ConfirmDialog' is declared but its value is never read.
+src/pages/Subscriptions/Subscriptions.tsx(12,39): error TS6196: 'SubscriptionType' is declared but never used.
+src/pages/Subscriptions/Subscriptions.tsx(39,10): error TS6133: 'isDeleteModalOpen' is declared but its value is never read.
+src/pages/Subscriptions/Subscriptions.tsx(39,29): error TS6133: 'setIsDeleteModalOpen' is declared but its value is never read.
+src/pages/Subscriptions/Subscriptions.tsx(40,10): error TS6133: 'selectedSubId' is declared but its value is never read.
+src/pages/Subscriptions/Subscriptions.tsx(40,25): error TS6133: 'setSelectedSubId' is declared but its value is never read.

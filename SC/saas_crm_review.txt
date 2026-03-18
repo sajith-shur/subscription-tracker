@@ -1,0 +1,51 @@
+
+﻿CRM Sync Web App Review (15 Mar 2026)
+
+Overview
+
+I logged into the CRM Sync SaaS application and systematically exercised its primary modules: Dashboard, Customers, Subscriptions, Reminders, Renewal History, Reports, and Settings. I navigated between pages using the sidebar, filled out forms, used filters/search, edited records, attempted exports/backups and observed responsiveness. The app generally follows a dark‑sidebar/light‑content layout but has inconsistent currency handling and some unfinished features.
+
+Bugs
+
+- Customers – Create/Edit: Price field resets to 0 during customer creation/edit. When selecting a subscription (e.g., Premium Business at £25/month) the "Price" displays correctly in the form, but after saving the customer profile shows $0 and editing again shows £0. Users cannot specify correct pricing.
+- Customers – Currency inconsistency: The app mixes £ and $ symbols. Plans show a pound sign in the form (e.g., £25) but the summary table lists amounts in dollars (e.g., $49). This creates confusion about the true currency.
+- Customer Search (Header): Typing a name in the global search bar and pressing Enter jumps to the Customers page, but the search term doesn’t persist in that page’s search field, forcing users to re‑enter the query.
+- Subscriptions – Send/Notify Icon: Each subscription row has a paper‑plane/arrow icon but clicking it does nothing (no modal or action) – it appears to be a placeholder.
+- Renewal History – Export CSV: The "Export CSV" button reports success via a toast but no file downloads and no feedback is provided.
+- Settings – Data & Security: "Generate Backup" and "Export Customers" actions show success toasts yet no file is delivered to the user.
+- Reports – Lead Sources grammar: Lead sources chart labels display "1 customers" instead of "1 customer".
+- Form validation: The Add Customer form does not validate email/phone formats. Submitting with empty/incorrect fields often still saves the record.
+
+UI/UX Issues
+
+- General navigation: The left navigation panel is fixed and does not collapse; on smaller screens this will consume valuable space and hamper responsiveness. No mobile/hamburger option.
+- Add Customer form: Long, multi‑section form requires scrolling; Save/Cancel buttons are only at the bottom and not sticky. Reminder checkboxes lack group labels and the sequence of input fields could be streamlined.
+- Currency presentation: Mixing of £ and $ symbols undermines user confidence and may cause billing mistakes.
+- Editing customers: Important fields such as subscription type and price are disabled in edit mode. Users cannot change a customer’s plan or adjust price without deleting and recreating the customer.
+- Reminders page: Running the automation check displays two messages: an on‑screen "Scan complete" banner and a separate toast, which clutters the UI.
+- Reports: Revenue Growth chart remains blank even with sample data; time range buttons (6 months, 1 year, All time) do not change content. Lead Sources grammar issue.
+- Notifications/General settings: These sections display "coming soon" placeholders, leaving navigation dead‑ends.
+- Search behavior: Search boxes require pressing Enter. Implementing search as you type would be more efficient.
+- Modals: Delete confirmation modals appear but do not show the item name, increasing risk of accidental deletion.
+
+Missing Features
+
+- Customer import/export – There is no ability to bulk import customers via CSV or Excel; only a non‑functional export exists.
+- Subscription plan management – Subscription types and pricing are hardcoded. Admins cannot create or edit plans.
+- Analytics/Reports – Charts are static or blank and do not support drill‑down or exporting. Common metrics like ARPU, churn trends, or cohort analysis are missing.
+- Role‑based access controls – All users appear to be Admin; there is no user management, roles or permissions.
+- Notification settings – Email/WhatsApp templates beyond the default message cannot be customized for different reminder intervals or languages.
+- Mobile responsiveness – The layout lacks a collapsible side‑menu and seems optimized only for desktop.
+- Audit logs – No log of changes to customers/subscriptions. An audit trail would help track edits and deletions.
+- Time zone support – Dates appear without reference to the user’s time zone and always display as DD/MM/YYYY.
+- Webhook/integration options – There is no API or integration with payment gateways beyond manual note entries.
+
+Priority Fixes
+
+1. **Fix pricing bug & currency consistency** – The most critical issue is that subscription prices default to 0 when saving a customer. Correct the binding between selected plan and price and enforce consistent currency across the app.
+2. **Enable data export/backups** – Ensure the CSV and JSON export functions trigger actual file downloads or provide a link to the exported file.
+3. **Complete reminder/send functionality** – Implement the send action on the Subscriptions page and ensure Reminders automation triggers messages correctly. Clean up duplicate "scan complete" messages.
+4. **Improve mobile responsiveness** – Add a collapsible/hamburger menu and provide sticky Save/Cancel actions on long forms.
+5. **Implement missing settings** – Fill out the Notifications and General settings pages or hide them until available; provide ability to configure currencies, time‑zones, and default reminder intervals.
+6. **Enhance analytics** – Populate the revenue growth chart using renewal history data and correct grammar in the Lead Sources chart.
+7. **Allow editing of subscriptions** – Allow admins to change a customer’s plan, price and renewal date from the edit form instead of forcing deletion and recreation.

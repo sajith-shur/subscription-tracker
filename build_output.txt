@@ -1,0 +1,3 @@
+﻿src/pages/Intake/IntakeForm.tsx(2,16): error TS6133: 'User' is declared but its value is never read.
+src/pages/Intake/IntakeForm.tsx(2,22): error TS6133: 'CreditCard' is declared but its value is never read.
+src/pages/Intake/IntakeForm.tsx(26,24): error TS2322: Type '"4M"' is not assignable to type 'PlanDuration'.
