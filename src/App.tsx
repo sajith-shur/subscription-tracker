@@ -34,7 +34,7 @@ function App() {
     <ToastProvider>
       <LocalizationProvider>
         <AuthProvider>
-          <Router basename="/subscription-tracker/">
+          <Router basename={import.meta.env.BASE_URL}>
             <Routes>
               {/* Public Routes */}
               <Route path="/login" element={<LoginPage />} />
