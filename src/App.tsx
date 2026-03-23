@@ -34,7 +34,7 @@ function App() {
     <ToastProvider>
       <LocalizationProvider>
         <AuthProvider>
-          <Router>
+          <Router basename="/subscription-tracker/">
             <Routes>
               {/* Public Routes */}
               <Route path="/login" element={<LoginPage />} />
