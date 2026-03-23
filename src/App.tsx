@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { HashRouter as Router, Routes, Route } from "react-router-dom";
 import { Layout } from "./components/layout/Layout";
 import { storage } from "./services/storage";
 import { Dashboard } from "./pages/Dashboard";
@@ -34,7 +34,7 @@ function App() {
     <ToastProvider>
       <LocalizationProvider>
         <AuthProvider>
-          <Router basename={import.meta.env.BASE_URL}>
+          <Router>
             <Routes>
               {/* Public Routes */}
               <Route path="/login" element={<LoginPage />} />
