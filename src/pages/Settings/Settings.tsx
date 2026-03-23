@@ -9,24 +9,32 @@ import { storage } from "../../services/storage";
 import * as db from "../../services/db";
 import { useToast } from "../../components/ui/Toast";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
+import { useLocalization } from "../../contexts/LocalizationContext";
 import type { AppSettings, AutoSendMode } from "../../types/index";
 
 export function SettingsPage() {
   const { showToast } = useToast();
+  const { updateSettings, formatDate: locFormatDate } = useLocalization();
   const [settings, setSettings] = useState<AppSettings>(storage.getSettings());
   const [activeTab, setActiveTab] = useState<'Overview' | 'General' | 'Automation' | 'Notifications' | 'Integrations' | 'Data' | 'Billing' | 'Team'>('Overview');
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
 
   const handleSave = () => {
-    storage.saveSettings(settings);
+    updateSettings(settings);
     showToast("Settings saved successfully!", "success");
   };
 
-  const handleResetSystem = () => {
-    storage.clearAll();
-    showToast("System reset complete. Data cleared.", "success");
-    setIsResetConfirmOpen(false);
-    setTimeout(() => window.location.reload(), 1500);
+  const handleResetSystem = async () => {
+    try {
+      await db.resetSystem();
+      storage.clearAll();
+      showToast("System reset complete. Data cleared.", "success");
+      setIsResetConfirmOpen(false);
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (error) {
+      console.error("Reset failed:", error);
+      showToast("System reset failed. Please try again.", "error");
+    }
   };
 
   const handleExportCSV = async (filter: 'all' | 'active' | 'expiring7' | 'expired' | string) => {
@@ -65,12 +73,12 @@ export function SettingsPage() {
 
       if (customers.length === 0) { showToast('No records match this filter.', 'error'); return; }
 
-      const formatDate = (iso?: string) => iso ? new Date(iso).toLocaleDateString('en-GB') : '';
+      const formatDate = (iso?: string) => iso ? locFormatDate(iso) : '';
       const headers = ['Customer ID', 'Full Name', 'Email', 'WhatsApp', 'Lead Source', 'Status', 'Customer Created Date', 'Start Date', 'Renewal Date', 'Subscription Type', 'Subscription Status', 'Subscription Period', 'Sold Price', 'Payment Method', 'Payment Status', 'Notes', 'Last Contacted'];
       const rows = customers.map(c => {
         const sub = subMap.get(c.id);
         const notes = Array.isArray(c.notes) ? (c.notes as any[]).map((n: any) => n.text).join(' | ') : String(c.notes ?? '');
-        return [c.id, c.fullName, c.email, c.whatsappNumber, c.leadSource, c.status, formatDate(c.createdAt), formatDate(sub?.startDate), formatDate(sub?.renewalDate), sub?.subscriptionType ?? '', sub?.status ?? '', sub?.planDuration ?? '', sub ? `${sub.price.toFixed(2)}` : '', sub?.paymentStatus ?? '', sub?.paymentStatus ?? '', notes, formatDate(sub?.lastContactedAt)];
+        return [c.id, c.fullName, c.email, c.whatsappNumber, c.leadSource, c.status, formatDate(c.createdAt), formatDate(sub?.startDate), formatDate(sub?.renewalDate), sub?.subscriptionType ?? '', sub?.status ?? '', sub?.planDuration ?? '', sub ? sub.price.toFixed(2) : '', sub?.paymentStatus ?? '', notes, formatDate(sub?.lastContactedAt)];
       });
       const escape = (val: any) => `"${String(val ?? '').replace(/"/g, '""')}"`;
       const csvContent = [headers.map(escape).join(','), ...rows.map(r => r.map(escape).join(','))].join('\n');
@@ -315,6 +323,7 @@ function GeneralSettings({ settings, setSettings }: { settings: AppSettings, set
             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Timezone</label>
             <select 
               value={settings.timezone}
+              onChange={(e) => setSettings({ ...settings, timezone: e.target.value })}
               className="w-full px-4 py-3 bg-slate-50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-500/10 text-sm font-bold appearance-none"
             >
               <option>Europe/London</option>
@@ -326,6 +335,7 @@ function GeneralSettings({ settings, setSettings }: { settings: AppSettings, set
             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Date Format</label>
             <select 
               value={settings.dateFormat}
+              onChange={(e) => setSettings({ ...settings, dateFormat: e.target.value })}
               className="w-full px-4 py-3 bg-slate-50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-500/10 text-sm font-bold appearance-none"
             >
               <option>DD/MM/YYYY</option>

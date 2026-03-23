@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, CreditCard, BellRing, History, PieChart, Settings, ChevronLeft, ChevronRight, Inbox } from "lucide-react";
+import { LayoutDashboard, Users, CreditCard, BellRing, History, PieChart, Settings, ChevronLeft, ChevronRight, Inbox, LogOut, Package, DollarSign } from "lucide-react";
 import { cn } from "../../utils/cn";
+import { useAuth } from "../../contexts/AuthContext";
+import { motion } from "framer-motion";
 import { collection, query, where, getCountFromServer } from "firebase/firestore";
 import { db as firestore } from "../../services/firebase";
 
@@ -17,6 +19,7 @@ interface NavGroup {
 }
 
 export function Sidebar({ isCollapsed, setIsCollapsed, mobileOpen }: SidebarProps) {
+  const { logout } = useAuth();
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
@@ -55,9 +58,22 @@ export function Sidebar({ isCollapsed, setIsCollapsed, mobileOpen }: SidebarProp
       ],
     },
     {
+      label: "Inventory",
+      items: [
+        { name: "Live Stock", href: "/inventory", icon: Package },
+      ],
+    },
+    {
+      label: "Finance",
+      items: [
+        { name: "USDT Purchases", href: "/finance/usdt", icon: DollarSign },
+        { name: "Profit Reports", href: "/reports/profit", icon: PieChart },
+      ],
+    },
+    {
       label: "System",
       items: [
-        { name: "Reports", href: "/reports", icon: PieChart },
+        { name: "Products", href: "/settings/products", icon: Settings },
         { name: "Settings", href: "/settings", icon: Settings },
       ],
     },
@@ -91,11 +107,12 @@ export function Sidebar({ isCollapsed, setIsCollapsed, mobileOpen }: SidebarProp
       </div>
 
       {/* Nav Groups */}
-      <nav className="flex-1 px-3 mt-4 space-y-5 overflow-y-auto">
+      <nav className="flex-1 px-3 mt-6 space-y-7 overflow-y-auto custom-scrollbar pb-10">
         {navGroups.map((group) => (
-          <div key={group.label}>
+          <div key={group.label} className="space-y-2">
             {!isCollapsed && (
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 px-3 mb-1">
+              <p className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-500/80 px-3 flex items-center gap-2">
+                <span className="w-1.5 h-[1px] bg-indigo-500/30"></span>
                 {group.label}
               </p>
             )}
@@ -110,34 +127,50 @@ export function Sidebar({ isCollapsed, setIsCollapsed, mobileOpen }: SidebarProp
                     end={item.href === "/"}
                     className={({ isActive }) =>
                       cn(
-                        "flex items-center px-3 py-2.5 text-sm font-semibold rounded-xl transition-all group relative",
+                        "flex items-center px-3 py-2.5 text-sm font-bold rounded-xl transition-all group relative duration-200",
                         isActive
-                          ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
-                          : "text-slate-400 hover:bg-slate-800/60 hover:text-white"
+                          ? "bg-indigo-600 text-white shadow-[0_4px_12px_rgba(79,70,229,0.3)] ring-1 ring-white/10"
+                          : "text-slate-500 hover:bg-slate-800/40 hover:text-white"
                       )
                     }
                   >
-                    <Icon className={cn("h-[18px] w-[18px] flex-shrink-0 transition-transform group-hover:scale-110", !isCollapsed && "mr-3")} />
-                    {!isCollapsed && (
-                      <span className="flex-1 animate-in slide-in-from-left-2 duration-300">{item.name}</span>
-                    )}
-                    {/* Badge */}
-                    {!isCollapsed && item.badge != null && item.badge > 0 && (
-                      <span className="ml-auto bg-rose-500 text-white text-[10px] font-black min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1 shadow-sm">
-                        {item.badge}
-                      </span>
-                    )}
-                    {isCollapsed && item.badge != null && item.badge > 0 && (
-                      <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-slate-900" />
-                    )}
-                    {/* Collapsed tooltip */}
-                    {isCollapsed && (
-                      <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-[11px] rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 shadow-xl border border-slate-700">
-                        {item.name}
-                        {item.badge != null && item.badge > 0 && (
-                          <span className="ml-1.5 bg-rose-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">{item.badge}</span>
+                    {({ isActive }) => (
+                      <>
+                        {isActive && (
+                          <motion.div 
+                            layoutId="activeNavIndicator"
+                            className="absolute left-0 w-1.5 h-6 bg-indigo-400 rounded-r-full shadow-[2px_0_8px_rgba(129,140,248,0.5)]" 
+                            initial={{ opacity: 0, x: -5 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                          />
                         )}
-                      </div>
+                        <Icon className={cn("h-[18px] w-[18px] flex-shrink-0 transition-transform group-hover:scale-110", !isCollapsed && "mr-3")} />
+                        {!isCollapsed && (
+                          <span className="flex-1 animate-in slide-in-from-left-2 duration-300">{item.name}</span>
+                        )}
+                        {/* Badge */}
+                        {!isCollapsed && item.badge != null && item.badge > 0 && (
+                          <span className={cn(
+                            "ml-auto text-[10px] font-black min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1 shadow-sm",
+                            isActive ? "bg-white text-indigo-600" : "bg-rose-500 text-white"
+                          )}>
+                            {item.badge}
+                          </span>
+                        )}
+                        {isCollapsed && item.badge != null && item.badge > 0 && (
+                          <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-slate-900" />
+                        )}
+                        {/* Collapsed tooltip */}
+                        {isCollapsed && (
+                          <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-[11px] rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 shadow-xl border border-slate-700">
+                            {item.name}
+                            {item.badge != null && item.badge > 0 && (
+                              <span className="ml-1.5 bg-rose-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">{item.badge}</span>
+                            )}
+                          </div>
+                        )}
+                      </>
                     )}
                   </NavLink>
                 );
@@ -160,10 +193,28 @@ export function Sidebar({ isCollapsed, setIsCollapsed, mobileOpen }: SidebarProp
             AD
           </div>
           {!isCollapsed && (
-            <div className="ml-3 animate-in fade-in duration-300 min-w-0">
+            <div className="ml-3 animate-in fade-in duration-300 min-w-0 flex-1">
               <p className="text-xs font-bold text-white truncate">Admin User</p>
               <p className="text-[10px] text-slate-500 font-medium">Strategic Tier</p>
             </div>
+          )}
+          {!isCollapsed && (
+            <button
+              onClick={() => logout()}
+              className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors ml-auto group/logout"
+              title="Log out"
+            >
+              <LogOut className="w-4 h-4 transition-transform group-hover/logout:translate-x-0.5" />
+            </button>
+          )}
+          {isCollapsed && (
+            <button
+              onClick={() => logout()}
+              className="absolute -top-2 -right-2 p-1.5 bg-slate-800 text-slate-400 hover:text-white rounded-full border border-slate-700 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Log out"
+            >
+              <LogOut className="w-3 h-3" />
+            </button>
           )}
         </div>
       </div>

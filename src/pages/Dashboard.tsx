@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Users, Activity, AlertCircle, FileText, PoundSterling, Percent, ChevronRight, Send } from "lucide-react";
+import { Users, Activity, AlertCircle, FileText, Banknote, Percent, ChevronRight, Send, Package, TrendingUp } from "lucide-react";
 import * as db from "../services/db";
 import type { Customer, Subscription } from "../types/index";
 import { motion } from "framer-motion";
 import { getDaysLeft, formatDaysLeft, getDaysLeftColorClass } from "../utils/dateUtils";
 import { useToast } from "../components/ui/Toast";
+import { useLocalization } from "../contexts/LocalizationContext";
 
 function StatCard({ title, value, icon, bgColor, color, subValue }: { title: string, value: string, icon: React.ReactNode, bgColor: string, color: string, subValue?: string }) {
   return (
@@ -28,6 +29,7 @@ function StatCard({ title, value, icon, bgColor, color, subValue }: { title: str
 export function Dashboard() {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { formatCurrency, formatDate } = useLocalization();
   const [stats, setStats] = useState({
     activeCustomers: 0,
     dueToday: 0,
@@ -35,15 +37,18 @@ export function Dashboard() {
     expired: 0,
     monthlyRevenue: 0,
     renewalRate: 0,
+    lowStock: 0,
+    totalProfit: 0,
   });
 
   const [upcoming, setUpcoming] = useState<{sub: Subscription, customer: Customer | undefined}[]>([]);
 
   useEffect(() => {
     (async () => {
-      const [customers, subs] = await Promise.all([
+      const [customers, subs, inventory] = await Promise.all([
         db.getCustomers(),
-        db.getSubscriptions()
+        db.getSubscriptions(),
+        db.getInventoryItems()
       ]);
 
       const getSubStatus = (renewalDate: string): string => {
@@ -70,6 +75,8 @@ export function Dashboard() {
           return sum + (s.price / months);
         }, 0);
 
+      const totalProfit = subs.reduce((sum, s) => sum + (s.profitGbp || 0), 0);
+
       const activeCount = subs.filter(s => getSubStatus(s.renewalDate) !== 'Expired').length;
       const renewalRateValue = activeCount + expiredCount > 0 
         ? Math.round((activeCount / (activeCount + expiredCount)) * 100) 
@@ -80,6 +87,9 @@ export function Dashboard() {
         return status === 'Due Soon';
       }).length;
 
+      const lowStock = inventory.filter(i => i.status === 'Available').length;
+      const availableItems = lowStock;
+
       setStats({
         activeCustomers,
         dueToday,
@@ -87,6 +97,8 @@ export function Dashboard() {
         expired: expiredCount,
         monthlyRevenue,
         renewalRate: renewalRateValue,
+        lowStock: availableItems,
+        totalProfit,
       });
 
       // Build a quick customer lookup map
@@ -108,7 +120,7 @@ export function Dashboard() {
   const handleSendReminder = (customer: Customer, sub: Subscription) => {
     const phone = customer.whatsappNumber.replace(/[^0-9]/g, '');
     const daysLeft = getDaysLeft(sub.renewalDate);
-    const message = encodeURIComponent(`Hi ${customer.fullName}, your ${sub.subscriptionType} plan is renewing ${daysLeft === 0 ? 'today' : daysLeft === 1 ? 'tomorrow' : `in ${daysLeft} days`}. Price: £${sub.price}. Would you like to keep it active?`);
+    const message = encodeURIComponent(`Hi ${customer.fullName}, your ${sub.subscriptionType} plan is renewing ${daysLeft === 0 ? 'today' : daysLeft === 1 ? 'tomorrow' : `in ${daysLeft} days`}. Price: ${formatCurrency(sub.price)}. Would you like to keep it active?`);
     window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
     showToast(`Reminder sent to ${customer.fullName}`, "success");
   };
@@ -125,7 +137,7 @@ export function Dashboard() {
         </div>
       </div>
 
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard 
           title="Active Customers" 
           value={String(stats.activeCustomers)} 
@@ -143,6 +155,33 @@ export function Dashboard() {
         />
 
         <StatCard 
+          title="Monthly Revenue" 
+          value={formatCurrency(Math.round(stats.monthlyRevenue))} 
+          subValue="Projected"
+          icon={<Banknote className="h-6 w-6" />} 
+          bgColor="bg-emerald-50" 
+          color="text-emerald-600" 
+        />
+
+        <StatCard 
+          title="Total Profit" 
+          value={formatCurrency(stats.totalProfit)} 
+          subValue="All time"
+          icon={<TrendingUp className="h-6 w-6" />} 
+          bgColor="bg-indigo-50" 
+          color="text-indigo-600" 
+        />
+
+        <StatCard 
+          title="Stock Available" 
+          value={String(stats.lowStock)} 
+          subValue={stats.lowStock < 5 ? "Low stock alert!" : "Healthy levels"}
+          icon={<Package className="h-6 w-6" />} 
+          bgColor={stats.lowStock < 5 ? "bg-rose-50" : "bg-slate-50"} 
+          color={stats.lowStock < 5 ? "text-rose-600" : "text-slate-600"} 
+        />
+
+        <StatCard 
           title="Due in 7 Days" 
           value={String(stats.dueThisWeek)} 
           icon={<Activity className="h-6 w-6" />} 
@@ -156,15 +195,6 @@ export function Dashboard() {
           icon={<FileText className="h-6 w-6" />} 
           bgColor="bg-slate-50" 
           color="text-slate-600" 
-        />
-
-        <StatCard 
-          title="Monthly Revenue" 
-          value={`£${Math.round(stats.monthlyRevenue)}`} 
-          subValue="Projected"
-          icon={<PoundSterling className="h-6 w-6" />} 
-          bgColor="bg-emerald-50" 
-          color="text-emerald-600" 
         />
 
         <StatCard 
@@ -216,7 +246,7 @@ export function Dashboard() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-slate-600 font-medium whitespace-nowrap">
-                        {new Date(item.sub.renewalDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                        {formatDate(item.sub.renewalDate)}
                       </td>
                       <td className="px-6 py-4">
                         <span className={`px-2 py-1 rounded-lg text-xs font-bold ${getDaysLeftColorClass(daysLeft)}`}>

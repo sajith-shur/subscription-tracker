@@ -23,6 +23,9 @@ import type {
   RenewalHistory,
   ActivityLog,
   IntakeRequest,
+  ManagedSubscriptionType,
+  USDTPurchase,
+  InventoryItem,
 } from "../types/index";
 
 // ─── Customers ───────────────────────────────────────────────────────────────
@@ -179,3 +182,93 @@ export const saveRequest = async (request: IntakeRequest): Promise<void> => {
 export const deleteRequest = async (id: string): Promise<void> => {
   await deleteDoc(doc(db, "requests", id));
 };
+
+// ─── Managed Subscription Types ───────────────────────────────────────────────
+
+export const getSubscriptionTypes = async (): Promise<ManagedSubscriptionType[]> => {
+  const snap = await getDocs(query(collection(db, "subscription_types"), orderBy("name", "asc")));
+  return snap.docs.map(d => d.data() as ManagedSubscriptionType);
+};
+
+export const getActiveSubscriptionTypes = async (): Promise<ManagedSubscriptionType[]> => {
+  // We fetch all and filter/sort client-side to avoid requiring a composite index in Firestore
+  const snap = await getDocs(collection(db, "subscription_types"));
+  const allTypes = snap.docs.map(d => d.data() as ManagedSubscriptionType);
+  return allTypes
+    .filter(type => type.active)
+    .sort((a, b) => a.name.localeCompare(b.name));
+};
+
+export const saveSubscriptionType = async (type: ManagedSubscriptionType): Promise<void> => {
+  await setDoc(doc(db, "subscription_types", type.id), type);
+};
+
+export const deleteSubscriptionType = async (id: string): Promise<void> => {
+  await deleteDoc(doc(db, "subscription_types", id));
+};
+
+// ─── USDT Purchases ──────────────────────────────────────────────────────────
+
+export const getUSDTPurchases = async (): Promise<USDTPurchase[]> => {
+  const snap = await getDocs(query(collection(db, "usdt_purchases"), orderBy("date", "desc")));
+  return snap.docs.map(d => d.data() as USDTPurchase);
+};
+
+export const saveUSDTPurchase = async (purchase: USDTPurchase): Promise<void> => {
+  await setDoc(doc(db, "usdt_purchases", purchase.id), purchase);
+};
+
+export const deleteUSDTPurchase = async (id: string): Promise<void> => {
+  await deleteDoc(doc(db, "usdt_purchases", id));
+};
+
+// ─── Inventory Items ─────────────────────────────────────────────────────────
+
+export const getInventoryItems = async (): Promise<InventoryItem[]> => {
+  const snap = await getDocs(query(collection(db, "inventory_items"), orderBy("createdAt", "desc")));
+  return snap.docs.map(d => d.data() as InventoryItem);
+};
+
+export const getInventoryItem = async (id: string): Promise<InventoryItem | undefined> => {
+  const snap = await getDoc(doc(db, "inventory_items", id));
+  return snap.exists() ? (snap.data() as InventoryItem) : undefined;
+};
+
+export const saveInventoryItem = async (item: InventoryItem): Promise<void> => {
+  await setDoc(doc(db, "inventory_items", item.id), item);
+};
+
+export const deleteInventoryItem = async (id: string): Promise<void> => {
+  await deleteDoc(doc(db, "inventory_items", id));
+};
+
+// ─── System Reset ────────────────────────────────────────────────────────────
+export const resetSystem = async (): Promise<void> => {
+  const collections = [
+    "customers",
+    "subscriptions",
+    "reminders",
+    "renewal_history",
+    "activity_logs",
+    "requests",
+    "inventory_items",
+    "usdt_purchases",
+  ];
+
+  for (const collName of collections) {
+    const snap = await getDocs(collection(db, collName));
+    if (snap.empty) continue;
+
+    const chunks = [];
+    for (let i = 0; i < snap.docs.length; i += 500) {
+      chunks.push(snap.docs.slice(i, i + 500));
+    }
+
+    for (const chunk of chunks) {
+      const batch = writeBatch(db);
+      chunk.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    }
+  }
+};
+

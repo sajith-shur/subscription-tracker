@@ -4,20 +4,13 @@ import { ArrowLeft, Save, User, Phone, Bell, MessageSquare, Linkedin, Globe, Cre
 import { addMonths, format, parseISO, isValid } from "date-fns";
 import * as db from "../../services/db";
 import { useToast } from "../../components/ui/Toast";
-import type { Customer, Subscription, SubscriptionType } from "../../types/index";
-
-const DEFAULT_PRICES: Record<SubscriptionType, string> = {
-  'Premium Career': '25.00',
-  'Premium Business': '25.00',
-  'Premium Company Page': '35.00',
-  'Recruiter Lite': '125.00',
-  'Sales Navigator Core': '75.00',
-  'Sales Navigator Advanced': '115.00',
-  'Sales Navigator Advanced Plus': '135.00'
-};
+import { useLocalization } from "../../contexts/LocalizationContext";
+import type { Customer, Subscription, ManagedSubscriptionType } from "../../types/index";
 
 export function CustomerForm() {
   const { showToast } = useToast();
+  const { formatCurrency } = useLocalization();
+  const currencySymbol = formatCurrency(0).replace(/[0-9.]/g, '');
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const isEditing = !!id;
@@ -38,14 +31,31 @@ export function CustomerForm() {
   });
 
   const [subData, setSubData] = useState({
-    subscriptionType: "" as SubscriptionType | "",
+    subscriptionType: "",
     durationMonths: 1,
     price: "",
     startDate: format(new Date(), 'yyyy-MM-dd'),
     renewalDate: ""
   });
 
+  const [managedTypes, setManagedTypes] = useState<ManagedSubscriptionType[]>([]);
+  const [loadingTypes, setLoadingTypes] = useState(true);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const fetchTypes = async () => {
+      try {
+        const types = await db.getActiveSubscriptionTypes();
+        setManagedTypes(types);
+      } catch (err) {
+        showToast("Error loading subscription products", "error");
+      } finally {
+        setLoadingTypes(false);
+      }
+    };
+    fetchTypes();
+  }, [showToast]);
 
   useEffect(() => {
     if (isEditing && id) {
@@ -119,11 +129,32 @@ export function CustomerForm() {
     const { name, value } = e.target;
     
     if (name === 'subscriptionType' && value) {
-      const defaultPrice = DEFAULT_PRICES[value as SubscriptionType] || "0.00";
+      const typeObj = managedTypes.find(t => t.name === value);
+      const defaultDur = typeObj?.durations.find(d => d.isDefault && d.active);
+      const firstActive = typeObj?.durations.find(d => d.active);
+      const durToUse = defaultDur || firstActive;
+      
+      const defaultPrice = durToUse?.defaultPrice?.toFixed(2) || "0.00";
+      const durationMonths = durToUse?.months || 1;
+
       setSubData(prev => ({ 
         ...prev, 
-        subscriptionType: value as SubscriptionType,
+        subscriptionType: value,
+        durationMonths: durationMonths,
         price: defaultPrice
+      }));
+      return;
+    }
+
+    if (name === 'durationMonths') {
+      const durationValue = parseInt(value) || 0;
+      const typeObj = managedTypes.find(t => t.name === subData.subscriptionType);
+      const durObj = typeObj?.durations.find(d => d.months === durationValue);
+      
+      setSubData(prev => ({ 
+        ...prev, 
+        durationMonths: durationValue,
+        price: durObj?.defaultPrice ? durObj.defaultPrice.toFixed(2) : prev.price
       }));
       return;
     }
@@ -179,7 +210,7 @@ export function CustomerForm() {
         const subscription: Subscription = {
           id: subId,
           customerId: customer.id,
-          subscriptionType: subData.subscriptionType as SubscriptionType,
+          subscriptionType: subData.subscriptionType as any,
           durationMonths: subData.durationMonths,
           planDuration: `${subData.durationMonths}M` as any,
           price: parseFloat(subData.price) || 0,
@@ -372,16 +403,13 @@ export function CustomerForm() {
                   name="subscriptionType"
                   value={subData.subscriptionType}
                   onChange={handleSubChange}
+                  disabled={loadingTypes}
                   className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 bg-white"
                 >
-                  <option value="">Select Subscription</option>
-                  <option value="Premium Career">Premium Career</option>
-                  <option value="Premium Business">Premium Business</option>
-                  <option value="Premium Company Page">Premium Company Page</option>
-                  <option value="Recruiter Lite">Recruiter Lite</option>
-                  <option value="Sales Navigator Core">Sales Navigator Core</option>
-                  <option value="Sales Navigator Advanced">Sales Navigator Advanced</option>
-                  <option value="Sales Navigator Advanced Plus">Sales Navigator Advanced Plus</option>
+                  <option value="">{loadingTypes ? "Loading..." : "Select Subscription"}</option>
+                  {managedTypes.map(type => (
+                    <option key={type.id} value={type.name}>{type.name}</option>
+                  ))}
                 </select>
               </div>
 
@@ -395,19 +423,22 @@ export function CustomerForm() {
                       onChange={handleSubChange}
                       className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 bg-white"
                     >
-                      <option value={1}>1 month</option>
-                      <option value={2}>2 months</option>
-                      <option value={3}>3 months</option>
-                      <option value={6}>6 months</option>
-                      <option value={9}>9 months</option>
-                      <option value={12}>12 months</option>
+                      {managedTypes
+                        .find(t => t.name === subData.subscriptionType)
+                        ?.durations.filter(d => d.active)
+                        .sort((a, b) => a.sortOrder - b.sortOrder)
+                        .map(dur => (
+                          <option key={dur.id} value={dur.months}>
+                            {dur.label} {dur.badgeText ? `(${dur.badgeText})` : ''}
+                          </option>
+                        ))}
                     </select>
                   </div>
 
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-700">Price</label>
                     <div className="relative">
-                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">£</span>
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">{currencySymbol}</span>
                       <input 
                         type="number" 
                         step="0.01"

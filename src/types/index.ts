@@ -5,6 +5,58 @@ export type RequestStatus = 'Pending' | 'Approved' | 'Rejected';
 export type PlanDuration = '1M' | '2M' | '3M' | '4M' | '6M' | '9M' | '12M';
 export type AutoSendMode = 'ON' | 'OFF' | 'Manual Approval';
 
+// ─── Managed Subscription Products ────────────────────────────────────────────
+
+export interface USDTPurchase {
+  id: string;
+  date: string;
+  gbpSpent: number;
+  usdtReceived: number;
+  exchangeRate: number; // GBP / USDT
+  notes: string;
+}
+
+export interface InventoryItem {
+  id: string;
+  productId: string;
+  productName: string;
+  durationMonths: number;
+  durationLabel: string;
+  codeOrLink: string;
+  vendorCostUsdt: number;
+  gbpCost: number;
+  batchId?: string; // Reference to USDTPurchase id
+  status: 'Available' | 'Assigned' | 'Used';
+  assignedCustomerId?: string;
+  assignedSubscriptionId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubscriptionDuration {
+  id: string;
+  label: string;       // e.g. "1 Month", "6 Months"
+  months: number;      // numeric value
+  active: boolean;
+  isDefault: boolean;
+  isMostPopular: boolean;
+  badgeText: string;   // e.g. "Best Value", "Most Popular"
+  defaultPrice: number;
+  vendorCostUsdt?: number; // Added for profit calculation
+  sortOrder: number;
+}
+
+export interface ManagedSubscriptionType {
+  id: string;
+  name: string;
+  category: string;
+  active: boolean;
+  notes: string;
+  durations: SubscriptionDuration[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CustomerNote {
   id: string;
   date: string;
@@ -42,6 +94,7 @@ export interface Subscription {
   id: string;
   customerId: string;
   subscriptionType?: SubscriptionType;
+  subscriptionTypeId?: string; // Reference to ManagedSubscriptionType
   durationMonths?: number;
   planDuration: PlanDuration;
   price: number;
@@ -53,6 +106,15 @@ export interface Subscription {
   paymentLink?: string;
   lastContactedAt?: string;
   lastRenewed?: string;
+  
+  // Inventory and Profit Fields
+  inventoryItemId?: string;
+  costUsdt?: number;
+  costGbp?: number;
+  salePriceGbp?: number;
+  profitGbp?: number;
+  vendorBatchId?: string;
+  
   createdAt: string;
   updatedAt: string;
 }
@@ -90,8 +152,12 @@ export interface IntakeRequest {
   whatsappNumber: string;
   email: string;
   redditUsername?: string;
-  subscriptionType: SubscriptionType | '';
-  subscriptionPeriod: PlanDuration | '';
+  subscriptionType: SubscriptionType | string | '';
+  subscriptionPeriod: PlanDuration | string | '';
+  subscriptionTypeId?: string;
+  subscriptionTypeName?: string;
+  durationMonths?: number;
+  durationLabel?: string;
   notes: string;
   
   // Admin-added fields during processing
@@ -102,6 +168,10 @@ export interface IntakeRequest {
   paymentStatus?: 'Paid' | 'Pending' | 'Partial';
   
   status: RequestStatus;
+  archived?: boolean;
+  deletedAt?: string;
+  customerId?: string;      // Linked customer after approval
+  subscriptionId?: string;  // Linked subscription after approval
   createdAt: string;
   updatedAt: string;
 }
@@ -145,3 +215,4 @@ export interface AppSettings {
     smtp: 'connected' | 'disconnected';
   };
 }
+

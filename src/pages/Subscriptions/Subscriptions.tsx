@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 import * as db from "../../services/db";
 import { useToast } from "../../components/ui/Toast";
 import { getDaysLeft, formatDaysLeft, getDaysLeftColorClass } from "../../utils/dateUtils";
+import { useLocalization } from "../../contexts/LocalizationContext";
 import type { Customer, Subscription } from "../../types/index";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -22,6 +23,7 @@ type SortOrder = 'asc' | 'desc';
 export function Subscriptions() {
   const { showToast } = useToast();
   const navigate = useNavigate();
+  const { formatCurrency, formatDate } = useLocalization();
   const [subs, setSubs] = useState<SubWithCustomer[]>([]);
   
   // Search and Filter state
@@ -139,7 +141,7 @@ export function Subscriptions() {
     if (!item.customer) return;
     const phone = item.customer.whatsappNumber.replace(/[^0-9]/g, '');
     const daysLeft = getDaysLeft(item.sub.renewalDate);
-    const message = encodeURIComponent(`Hi ${item.customer.fullName}, your ${item.sub.subscriptionType} plan is renewing ${daysLeft === 0 ? 'today' : daysLeft === 1 ? 'tomorrow' : `in ${daysLeft} days`}. Price: £${item.sub.price}. Would you like to keep it active?`);
+    const message = encodeURIComponent(`Hi ${item.customer.fullName}, your ${item.sub.subscriptionType} plan is renewing ${daysLeft === 0 ? 'today' : daysLeft === 1 ? 'tomorrow' : `in ${daysLeft} days`}. Price: ${formatCurrency(item.sub.price)}. Would you like to keep it active?`);
     window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
     showToast(`Reminder flow opened for ${item.customer.fullName}`, "info");
   };
@@ -183,7 +185,7 @@ export function Subscriptions() {
             <FilterSelect 
               value={durationFilter} 
               onChange={setDurationFilter} 
-              options={["All", "1", "2", "3", "6", "9", "12"]} 
+              options={["All", "1", "2", "3", "4", "6", "9", "12"]} 
               label="Duration"
               formatOption={(opt) => opt === 'All' ? 'All Durations' : `${opt} month${opt !== '1' ? 's' : ''}`}
             />
@@ -263,15 +265,15 @@ export function Subscriptions() {
                         <span className="text-xs font-semibold text-slate-500">{item.sub.durationMonths} {item.sub.durationMonths === 1 ? 'month' : 'months'}</span>
                       </td>
                       <td className="px-6 py-5">
-                        <span className="font-black text-slate-900 text-sm">£{item.sub.price}</span>
+                        <span className="font-black text-slate-900 text-sm">{formatCurrency(item.sub.price)}</span>
                       </td>
                       <td className="px-6 py-5">
-                        <span className="text-xs text-slate-500 font-medium">{new Date(item.sub.startDate).toLocaleDateString()}</span>
+                        <span className="text-xs text-slate-500 font-medium">{formatDate(item.sub.startDate)}</span>
                       </td>
                       <td className="px-6 py-5">
                         <div className="space-y-0.5">
                           <div className="text-xs font-bold text-slate-900">
-                            {new Date(item.sub.renewalDate).toLocaleDateString()}
+                            {formatDate(item.sub.renewalDate)}
                           </div>
                           <div className={`text-[10px] font-bold uppercase tracking-tight ${getDaysLeftColorClass(daysLeft).split(' ')[0]}`}>
                             {formatDaysLeft(daysLeft)}

@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Explicitly check if the authenticated user's UID exists in the 'admins' collection.
+    // This prevents any random user who signs up via the Firebase REST API from accessing the CRM.
+    function isAdmin() {
+      return request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    match /subscription_types/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    match /requests/{document=**} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+    
+    // Strict admin-only access for all actual CRM data collections
+    match /customers/{document=**} {
+      allow read, write: if isAdmin();
+    }
+    match /subscriptions/{document=**} {
+      allow read, write: if isAdmin();
+    }
+    match /renewal_history/{document=**} {
+      allow read, write: if isAdmin();
+    }
+    match /reminders/{document=**} {
+      allow read, write: if isAdmin();
+    }
+    match /activity_logs/{document=**} {
+      allow read, write: if isAdmin();
+    }
+    match /settings/{document=**} {
+      allow read, write: if isAdmin();
+    }
+    
+    match /inventory_items/{document=**} {
+      allow read, write: if isAdmin();
+    }
+    
+    match /usdt_purchases/{document=**} {
+      allow read, write: if isAdmin();
+    }
+    
+    // The admins collection itself
+    match /admins/{document} {
+      allow read: if request.auth != null && request.auth.uid == document;
+      allow write: if false; // Only manageable directly from Firebase Console
+    }
+    
+    // Default fallback to closed
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

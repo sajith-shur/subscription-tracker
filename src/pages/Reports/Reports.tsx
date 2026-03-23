@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
 import { TrendingUp, Users, Calendar, PoundSterling, PieChart, BarChart2, Clock } from "lucide-react";
 import * as db from "../../services/db";
+import { useLocalization } from "../../contexts/LocalizationContext";
 import { motion } from "framer-motion";
 
 export function Reports() {
+  const { formatCurrency } = useLocalization();
   const [timeRange, setTimeRange] = useState<'6m' | '1y' | 'all'>('6m');
   const [stats, setStats] = useState({
     totalCustomers: 0,
@@ -166,14 +168,14 @@ export function Reports() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <ReportCard 
           title="Revenue" 
-          value={`£${stats.totalRevenue.toLocaleString()}`} 
+          value={formatCurrency(stats.totalRevenue)} 
           change="+12.5%" 
           icon={<PoundSterling className="h-5 w-5 text-emerald-600" />}
           bgColor="bg-emerald-50"
         />
         <ReportCard 
           title="Est. MRR" 
-          value={`£${stats.monthlyRecurringRevenue.toLocaleString()}`} 
+          value={formatCurrency(stats.monthlyRecurringRevenue)} 
           change="+5.2%" 
           icon={<TrendingUp className="w-5 h-5 text-indigo-600" />}
           bgColor="bg-indigo-50"
@@ -225,7 +227,7 @@ export function Reports() {
                     className="w-full max-w-[40px] bg-gradient-to-t from-indigo-600 to-indigo-400 rounded-t-xl shadow-lg shadow-indigo-100 group-hover:from-indigo-500 group-hover:to-indigo-300 transition-all cursor-pointer relative"
                   >
                     <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap shadow-xl">
-                      £{data.amount.toLocaleString()}
+                      {formatCurrency(data.amount)}
                     </div>
                   </motion.div>
                 </div>
@@ -261,7 +263,7 @@ export function Reports() {
           <div className="mt-8 pt-6 border-t border-slate-50 flex items-center justify-between">
              <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Avg LTV</p>
-                <p className="text-xl font-black text-slate-900">£{stats.avgLtv.toFixed(2)}</p>
+                <p className="text-xl font-black text-slate-900">{formatCurrency(stats.avgLtv)}</p>
              </div>
             <div className="p-3 bg-indigo-50 rounded-2xl">
                <TrendingUp className="w-6 h-6 text-indigo-600" />

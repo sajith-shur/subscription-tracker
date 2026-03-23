@@ -8,6 +8,7 @@ import {
 import * as db from "../../services/db";
 import { useToast } from "../../components/ui/Toast";
 import { useNavigate } from "react-router-dom";
+import { useLocalization } from "../../contexts/LocalizationContext";
 import type { RenewalHistory, Customer } from "../../types/index";
 
 type EnrichedHistory = RenewalHistory & { customer?: Customer };
@@ -26,6 +27,7 @@ const PAGE_SIZE = 10;
 export function RenewalHistoryPage() {
   const { showToast } = useToast();
   const navigate = useNavigate();
+  const { formatCurrency, formatDate } = useLocalization();
 
   const [history, setHistory] = useState<EnrichedHistory[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -164,9 +166,9 @@ export function RenewalHistoryPage() {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard label="Total Transactions" value={String(filtered.length)} icon={<FileText className="w-5 h-5 text-indigo-500" />} bgColor="bg-indigo-50" />
-        <KpiCard label="Total Revenue" value={`£${totalRevenue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={<TrendingUp className="w-5 h-5 text-emerald-500" />} bgColor="bg-emerald-50" highlight />
-        <KpiCard label="Avg Transaction" value={`£${avgValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={<DollarSign className="w-5 h-5 text-blue-500" />} bgColor="bg-blue-50" />
-        <KpiCard label="Renewals This Month" value={`${renewalsThisMonth} · £${thisMonthRevenue.toFixed(0)}`} icon={<RefreshCw className="w-5 h-5 text-violet-500" />} bgColor="bg-violet-50" />
+        <KpiCard label="Total Revenue" value={formatCurrency(totalRevenue)} icon={<TrendingUp className="w-5 h-5 text-emerald-500" />} bgColor="bg-emerald-50" highlight />
+        <KpiCard label="Avg Transaction" value={formatCurrency(avgValue)} icon={<DollarSign className="w-5 h-5 text-blue-500" />} bgColor="bg-blue-50" />
+        <KpiCard label="Renewals This Month" value={`${renewalsThisMonth} · ${formatCurrency(thisMonthRevenue)}`} icon={<RefreshCw className="w-5 h-5 text-violet-500" />} bgColor="bg-violet-50" />
       </div>
 
       {/* Revenue Chart */}
@@ -181,7 +183,7 @@ export function RenewalHistoryPage() {
         <div className="flex items-end gap-3 h-36">
           {chartData.map(d => (
             <div key={d.key} className="flex-1 flex flex-col items-center gap-2">
-              <span className="text-[10px] font-bold text-slate-400">{d.amount > 0 ? `£${d.amount}` : ''}</span>
+              <span className="text-[10px] font-bold text-slate-400">{d.amount > 0 ? formatCurrency(d.amount) : ''}</span>
               <div className="w-full rounded-t-xl bg-indigo-100 overflow-hidden relative" style={{ height: '80px' }}>
                 <div
                   className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-indigo-600 to-indigo-400 rounded-t-xl transition-all duration-700"
@@ -277,12 +279,11 @@ export function RenewalHistoryPage() {
                     </td>
                     {/* Date */}
                     <td className="px-6 py-4 text-slate-600 font-medium text-xs whitespace-nowrap">
-                      {new Date(entry.renewedOn).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                      {formatDate(entry.renewedOn)}
                     </td>
-                    {/* Amount */}
                     <td className="px-6 py-4">
                       <span className="font-black text-emerald-600 text-sm">
-                        £{entry.amount.toFixed(2)}
+                        {formatCurrency(entry.amount)}
                       </span>
                     </td>
                     {/* Payment Method */}

@@ -1,19 +1,28 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Phone, Mail, Globe, Clock, Edit, Trash2, Shield, MessageSquare, TrendingUp, Linkedin, Activity, Plus, Hash } from "lucide-react";
+import { 
+  ArrowLeft, Phone, Mail, Globe, Clock, Edit, Trash2, Shield, 
+  MessageSquare, TrendingUp, Linkedin, Activity, Plus, Hash, 
+  FileText, Copy 
+} from "lucide-react";
+import { generateInvoicePDF } from "../../utils/invoiceGenerator";
+import { getFulfilmentWhatsAppText } from "../../utils/whatsappTemplates";
 import * as db from "../../services/db";
 import { useToast } from "../../components/ui/Toast";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
-import type { Customer, Subscription, CustomerNote } from "../../types/index";
+import type { Customer, Subscription, CustomerNote, InventoryItem } from "../../types/index";
 import { getDaysLeft, formatDaysLeft, getDaysLeftColorClass } from "../../utils/dateUtils";
+import { useLocalization } from "../../contexts/LocalizationContext";
 import { motion } from "framer-motion";
 
 export function CustomerDetail() {
   const { showToast } = useToast();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { formatCurrency, formatDate } = useLocalization();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [lifetimeValue, setLifetimeValue] = useState(0);
   
   // Modal & Input state
@@ -27,12 +36,14 @@ export function CustomerDetail() {
         const foundCustomer = await db.getCustomer(id);
         if (foundCustomer) {
           setCustomer(foundCustomer);
-          const [subs, value] = await Promise.all([
+          const [subs, value, inv] = await Promise.all([
             db.getCustomerSubscriptions(id),
-            db.getCustomerValue(id)
+            db.getCustomerValue(id),
+            db.getInventoryItems()
           ]);
           setSubscriptions(subs);
           setLifetimeValue(value);
+          setInventoryItems(inv.filter(item => item.assignedCustomerId === id));
         }
       })();
     }
@@ -117,7 +128,7 @@ export function CustomerDetail() {
               <p className="text-lg font-black mt-0.5">
                 {formatDaysLeft(getDaysLeft(subscriptions[0].renewalDate))}
               </p>
-              <p className="text-[10px] font-bold opacity-50 uppercase">{new Date(subscriptions[0].renewalDate).toLocaleDateString(undefined, { dateStyle: 'long' })}</p>
+              <p className="text-[10px] font-bold opacity-50 uppercase">{formatDate(subscriptions[0].renewalDate)}</p>
            </div>
         </div>
       )}
@@ -164,7 +175,7 @@ export function CustomerDetail() {
                <TrendingUp className="w-8 h-8" />
             </div>
             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Lifetime Value</p>
-            <p className="text-4xl font-black text-slate-900">£{lifetimeValue.toFixed(2)}</p>
+            <p className="text-4xl font-black text-slate-900">{formatCurrency(lifetimeValue)}</p>
             <p className="text-[10px] text-slate-400 mt-2 italic">Total revenue generated</p>
         </div>
       </div>
@@ -187,23 +198,76 @@ export function CustomerDetail() {
                   <p className="text-slate-400 font-medium italic">No active subscriptions found</p>
                 </div>
               ) : (
-                subscriptions.map(sub => (
-                  <div key={sub.id} className="flex items-center justify-between p-6 rounded-2xl bg-slate-50 border border-slate-100 hover:border-indigo-100 transition-colors group">
-                    <div className="flex items-center gap-5">
-            <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-600 font-bold group-hover:text-indigo-600 transition-colors shadow-sm">
-              £
-            </div>
-                      <div>
-                        <div className="font-bold text-slate-900 text-lg">{sub.subscriptionType || `${sub.planDuration} Plan`}</div>
-                        <div className="text-xs text-slate-500 font-medium">{sub.subscriptionType ? `${sub.planDuration} plan • ` : ''}Renewal: {new Date(sub.renewalDate).toLocaleDateString(undefined, { dateStyle: 'medium' })}</div>
+                subscriptions.map(sub => {
+                  const assignedItem = inventoryItems.find(i => i.id === sub.inventoryItemId);
+                  
+                  return (
+                    <div key={sub.id} className="space-y-3">
+                      <div className="flex items-center justify-between p-6 rounded-2xl bg-slate-50 border border-slate-100 hover:border-indigo-100 transition-colors group">
+                        <div className="flex items-center gap-5">
+                          <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-600 font-bold group-hover:text-indigo-600 transition-colors shadow-sm">
+                            {formatCurrency(0).replace(/[0-9.]/g, '')}
+                          </div>
+                          <div>
+                            <div className="font-bold text-slate-900 text-lg">{sub.subscriptionType || `${sub.planDuration} Plan`}</div>
+                            <div className="text-xs text-slate-500 font-medium">{sub.subscriptionType ? `${sub.planDuration} plan • ` : ''}Renewal: {formatDate(sub.renewalDate)}</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => customer && generateInvoicePDF(customer, sub, formatCurrency, formatDate)}
+                            className="p-2 text-indigo-600 hover:bg-indigo-100 rounded-xl transition-colors shrink-0"
+                            title="Download Invoice"
+                          >
+                            <FileText className="w-5 h-5" />
+                          </button>
+                          <div className="text-right">
+                            <div className="font-black text-slate-900 text-xl">{formatCurrency(sub.price)}</div>
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">{sub.status}</span>
+                          </div>
+                        </div>
                       </div>
+
+                      {/* Inventory / Fulfilment Section */}
+                      {assignedItem && (
+                        <div className="ml-4 p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center">
+                              <Hash className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-400">Activation Link / Code</p>
+                              <code className="text-xs font-mono font-bold text-slate-700">{assignedItem.codeOrLink}</code>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 w-full sm:w-auto">
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(assignedItem.codeOrLink);
+                                showToast("Link/Code copied!", "success");
+                              }}
+                              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-1.5 bg-white border border-indigo-200 text-indigo-600 rounded-lg text-xs font-bold hover:bg-indigo-50 transition-colors"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                              Copy
+                            </button>
+                            <button
+                              onClick={() => {
+                                const text = getFulfilmentWhatsAppText(customer, sub, assignedItem.codeOrLink);
+                                const cleanNumber = customer.whatsappNumber.replace(/[^0-9]/g, '');
+                                window.open(`https://wa.me/${cleanNumber}?text=${encodeURIComponent(text)}`, '_blank');
+                              }}
+                              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold hover:bg-emerald-600 transition-colors shadow-sm shadow-emerald-100"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              WhatsApp
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div className="text-right">
-                      <div className="font-black text-slate-900 text-xl">£{sub.price}</div>
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">{sub.status}</span>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -316,7 +380,7 @@ export function CustomerDetail() {
 
             <div className="mt-8 pt-6 border-t border-slate-50 text-center">
                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Customer Created</p>
-               <p className="text-sm font-bold text-slate-900 mt-1">{new Date(customer.createdAt).toLocaleDateString(undefined, { dateStyle: 'long' })}</p>
+               <p className="text-sm font-bold text-slate-900 mt-1">{formatDate(customer.createdAt)}</p>
             </div>
           </div>
         </div>

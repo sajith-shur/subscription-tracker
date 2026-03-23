@@ -3,27 +3,20 @@ import { useParams, useNavigate } from "react-router-dom";
 import { 
   ArrowLeft, CheckCircle2, XCircle, User, 
   MessageSquare, CreditCard, FileText,
-  Zap, ChevronRight, AlertTriangle
+  Zap, ChevronRight, AlertTriangle, Archive, Trash2, RefreshCw
 } from "lucide-react";
 import { useToast } from "../../components/ui/Toast";
 import * as db from "../../services/db";
-import type { IntakeRequest, Customer, Subscription, PlanDuration, SubscriptionType } from "../../types/index";
-import { jsPDF } from "jspdf";
-
-const SUBSCRIPTION_TYPES: SubscriptionType[] = [
-  "Premium Career",
-  "Premium Business",
-  "Premium Company Page",
-  "Recruiter Lite",
-  "Sales Navigator Core",
-  "Sales Navigator Advanced",
-  "Sales Navigator Advanced Plus"
-];
+import type { IntakeRequest, Customer, Subscription, ManagedSubscriptionType, InventoryItem } from "../../types/index";
+import { generateInvoicePDF, getInvoiceWhatsAppText } from "../../utils/invoiceGenerator";
+import { getFulfilmentWhatsAppText } from "../../utils/whatsappTemplates";
+import { useLocalization } from "../../contexts/LocalizationContext";
 
 export function RequestDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { formatCurrency, formatDate } = useLocalization();
   
   const [request, setRequest] = useState<IntakeRequest | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -35,9 +28,31 @@ export function RequestDetail() {
   const [renewalDate, setRenewalDate] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<"Paid" | "Pending" | "Partial">("Pending");
   const [internalNotes, setInternalNotes] = useState("");
-  const [subscriptionType, setSubscriptionType] = useState<SubscriptionType | "">("");
-  const [subscriptionPeriod, setSubscriptionPeriod] = useState<PlanDuration | "">("");
+  const [subscriptionType, setSubscriptionType] = useState("");
+  const [subscriptionPeriod, setSubscriptionPeriod] = useState("");
   const [duplicateWarning, setDuplicateWarning] = useState(false);
+
+  // Linked data for approved requests
+  const [linkedSubscription, setLinkedSubscription] = useState<Subscription | null>(null);
+  const [linkedInventoryItem, setLinkedInventoryItem] = useState<InventoryItem | null>(null);
+  const [isFetchingLinked, setIsFetchingLinked] = useState(false);
+
+  const [managedTypes, setManagedTypes] = useState<ManagedSubscriptionType[]>([]);
+  const [loadingTypes, setLoadingTypes] = useState(true);
+
+  useEffect(() => {
+    const fetchTypes = async () => {
+      try {
+        const types = await db.getActiveSubscriptionTypes();
+        setManagedTypes(types);
+      } catch (err) {
+        showToast("Error loading subscription products", "error");
+      } finally {
+        setLoadingTypes(false);
+      }
+    };
+    fetchTypes();
+  }, [showToast]);
 
   useEffect(() => {
     if (id) {
@@ -56,8 +71,13 @@ export function RequestDetail() {
         if (data.renewalDate) setRenewalDate(data.renewalDate);
         if (data.paymentStatus) setPaymentStatus(data.paymentStatus);
         if (data.internalNotes) setInternalNotes(data.internalNotes);
-        if (data.subscriptionType) setSubscriptionType(data.subscriptionType);
-        if (data.subscriptionPeriod) setSubscriptionPeriod(data.subscriptionPeriod);
+        
+        // Use detailed fields if available, gracefully fall back to legacy strings
+        const savedTypeName = data.subscriptionTypeName || data.subscriptionType;
+        if (savedTypeName) setSubscriptionType(savedTypeName as string);
+        
+        const savedPeriodValue = data.durationMonths ? `${data.durationMonths}M` : data.subscriptionPeriod;
+        if (savedPeriodValue) setSubscriptionPeriod(savedPeriodValue as string);
         
         // Duplicate check
         const allRequests = await db.getRequests();
@@ -90,6 +110,30 @@ export function RequestDetail() {
       setIsLoading(false);
     }
   };
+
+  // Fetch linked data if request is approved
+  useEffect(() => {
+    if (request?.status === "Approved" && request.subscriptionId) {
+      const subId = request.subscriptionId;
+      (async () => {
+        setIsFetchingLinked(true);
+        try {
+          const sub = await db.getSubscription(subId);
+          if (sub) {
+            setLinkedSubscription(sub);
+            if (sub.inventoryItemId) {
+              const inv = await db.getInventoryItem(sub.inventoryItemId);
+              if (inv) setLinkedInventoryItem(inv);
+            }
+          }
+        } catch (err) {
+          console.error("Error fetching linked data:", err);
+        } finally {
+          setIsFetchingLinked(false);
+        }
+      })();
+    }
+  }, [request?.id, request?.status, request?.subscriptionId]);
 
   const handleCalculateRenewal = () => {
     if (!request?.subscriptionPeriod) return;
@@ -133,19 +177,64 @@ export function RequestDetail() {
         updatedAt: now
       };
 
-      // 2. Create Subscription
+      // Find detailed types from managed list fallback to existing
+      const typeObj = managedTypes.find(t => t.name === subscriptionType);
+      const durObj = typeObj?.durations.find(d => `${d.months}M` === subscriptionPeriod);
+
+      // --- INVENTORY AUTO-ASSIGNMENT ---
+      let assignedItem = null;
+      let costGbp = 0;
+      let costUsdt = 0;
+      let vendorBatchId = undefined;
+
+      // Try to find available stock
+      const allInventory = await db.getInventoryItems();
+      const availableItems = allInventory.filter(i => 
+        i.status === 'Available' && 
+        i.productId === typeObj?.id && 
+        i.durationMonths === durObj?.months
+      );
+
+      if (availableItems.length > 0) {
+        assignedItem = availableItems[0];
+        costGbp = assignedItem.gbpCost;
+        costUsdt = assignedItem.vendorCostUsdt;
+        vendorBatchId = assignedItem.batchId;
+      } else {
+        // Fallback cost calculation if no stock but durObj has vendorCostUsdt
+        if (durObj?.vendorCostUsdt) {
+          costUsdt = durObj.vendorCostUsdt;
+          const batches = await db.getUSDTPurchases();
+          const latestRate = batches[0]?.exchangeRate || 0.75; // fallback rate
+          costGbp = costUsdt * latestRate;
+        }
+      }
+
+      const profitGbp = defaultPrice - costGbp;
+
       const subId = `su_${Date.now()}`;
       const subscription: Subscription = {
         id: subId,
         customerId,
-        subscriptionType: (subscriptionType as SubscriptionType) || "Sales Navigator Core",
-        planDuration: (subscriptionPeriod as PlanDuration) || "6M",
+        subscriptionType: subscriptionType as any,
+        subscriptionTypeId: typeObj?.id,
+        planDuration: subscriptionPeriod as any,
+        durationMonths: durObj?.months || parseInt(subscriptionPeriod.replace(/\D/g, "")) || 1,
         price: defaultPrice,
         startDate,
         renewalDate,
         paymentStatus,
         status: "Active",
         autoRenew: true,
+        
+        // Inventory and Profit
+        inventoryItemId: assignedItem?.id,
+        costUsdt,
+        costGbp,
+        salePriceGbp: defaultPrice,
+        profitGbp,
+        vendorBatchId,
+
         createdAt: now,
         updatedAt: now
       };
@@ -159,6 +248,8 @@ export function RequestDetail() {
         paymentStatus,
         internalNotes,
         status: "Approved",
+        customerId,
+        subscriptionId: subId,
         updatedAt: now
       };
 
@@ -167,10 +258,25 @@ export function RequestDetail() {
       await db.saveSubscription(subscription);
       await db.saveRequest(updatedRequest);
       
-      // Log initial transaction implicitly by saving sub and calling logTransaction
+      // Update inventory item if assigned
+      if (assignedItem) {
+        await db.saveInventoryItem({
+          ...assignedItem,
+          status: 'Assigned',
+          assignedCustomerId: customerId,
+          assignedSubscriptionId: subId,
+          updatedAt: now
+        });
+      }
+
       await db.logTransaction(subscription);
 
-      showToast("Request approved and customer created!", "success");
+      // --- INSTANT UI UPDATE ---
+      setLinkedSubscription(subscription);
+      setLinkedInventoryItem(assignedItem);
+      
+      showToast(assignedItem ? "Approved! Inventory item assigned." : "Approved! No matching stock available.", 
+        assignedItem ? "success" : "info");
       setRequest(updatedRequest);
       
     } catch (error) {
@@ -202,70 +308,103 @@ export function RequestDetail() {
     }
   };
 
-  const getInvoiceText = () => {
-    if (!request || !request.soldPrice) return "";
-    return `*INVOICE*
------------------------------
-*Customer:* ${request.fullName}
-*Subscription:* ${request.subscriptionType} (${request.subscriptionPeriod} plan)
-*Activation Date:* ${new Date(request.startDate || startDate).toLocaleDateString()}
-*Renewal Date:* ${new Date(request.renewalDate || renewalDate).toLocaleDateString()}
-*Total Amount:* £${request.soldPrice}
-*Status:* ${request.paymentStatus}
+  const handleAction = async (action: 'archive' | 'restore' | 'delete') => {
+    if (!request) return;
 
-Thank you for your business!`;
+    setIsProcessing(true);
+    try {
+      if (action === 'delete') {
+        if (!window.confirm("Are you sure you want to permanently delete this request? This cannot be undone.")) return;
+        await db.deleteRequest(request.id);
+        showToast("Request permanently deleted", "success");
+        navigate("/requests");
+        return; // Don't reset processing, just leave
+      } else if (action === 'archive') {
+        const updatedRequest = { ...request, archived: true, deletedAt: new Date().toISOString() };
+        await db.saveRequest(updatedRequest);
+        setRequest(updatedRequest);
+        showToast("Request moved to archive", "success");
+      } else if (action === 'restore') {
+        const updatedRequest = { ...request, archived: false, status: "Pending" as const, updatedAt: new Date().toISOString() };
+        delete updatedRequest.deletedAt;
+        await db.saveRequest(updatedRequest);
+        setRequest(updatedRequest);
+        showToast("Request restored to Pending", "success");
+      }
+    } catch (error) {
+      console.error(`Failed to ${action} request:`, error);
+      showToast(`Failed to ${action} request`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const getInvoiceText = (code?: string) => {
+    if (!request) return "";
+    const subscription: Subscription = {
+      id: "temp",
+      customerId: "temp",
+      subscriptionType: request.subscriptionType as any,
+      planDuration: request.subscriptionPeriod as any,
+      durationMonths: parseInt(request.subscriptionPeriod.replace(/\D/g, "")) || 1,
+      price: request.soldPrice || 0,
+      startDate: request.startDate || startDate,
+      renewalDate: request.renewalDate || renewalDate,
+      paymentStatus: request.paymentStatus || 'Paid',
+      status: 'Active',
+      autoRenew: true,
+      createdAt: "",
+      updatedAt: ""
+    };
+    const customer: Customer = {
+      id: "temp",
+      fullName: request.fullName,
+      whatsappNumber: request.whatsappNumber,
+      email: request.email,
+      linkedinUrl: "",
+      country: "",
+      leadSource: "",
+      notes: [],
+      status: "Active",
+      createdAt: "",
+      updatedAt: ""
+    };
+    return getInvoiceWhatsAppText(customer, subscription, formatCurrency, formatDate, code);
   };
 
   const handleGenerateInvoice = () => {
     if (!request) return;
     
-    const doc = new jsPDF();
+    const subscription: Subscription = {
+      id: "temp",
+      customerId: "temp",
+      subscriptionType: request.subscriptionType as any,
+      planDuration: request.subscriptionPeriod as any,
+      durationMonths: parseInt(request.subscriptionPeriod.replace(/\D/g, "")) || 1,
+      price: request.soldPrice || 0,
+      startDate: request.startDate || startDate,
+      renewalDate: request.renewalDate || renewalDate,
+      paymentStatus: request.paymentStatus || 'Paid',
+      status: 'Active',
+      autoRenew: true,
+      createdAt: "",
+      updatedAt: ""
+    };
+    const customer: Customer = {
+      id: "temp",
+      fullName: request.fullName,
+      whatsappNumber: request.whatsappNumber,
+      email: request.email,
+      linkedinUrl: "",
+      country: "",
+      leadSource: "",
+      notes: [],
+      status: "Active",
+      createdAt: "",
+      updatedAt: ""
+    };
     
-    // Header
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(22);
-    doc.text("INVOICE", 20, 30);
-    
-    doc.setFontSize(12);
-    
-    const startY = 50;
-    const lh = 10;
-    
-    doc.setFont("helvetica", "bold");
-    doc.text("Customer:", 20, startY);
-    doc.setFont("helvetica", "normal");
-    doc.text(request.fullName, 60, startY);
-    
-    doc.setFont("helvetica", "bold");
-    doc.text("Subscription:", 20, startY + lh);
-    doc.setFont("helvetica", "normal");
-    doc.text(`${request.subscriptionType} (${request.subscriptionPeriod} plan)`, 60, startY + lh);
-    
-    doc.setFont("helvetica", "bold");
-    doc.text("Activation Date:", 20, startY + lh * 2);
-    doc.setFont("helvetica", "normal");
-    doc.text(new Date(request.startDate || startDate).toLocaleDateString(), 60, startY + lh * 2);
-    
-    doc.setFont("helvetica", "bold");
-    doc.text("Renewal Date:", 20, startY + lh * 3);
-    doc.setFont("helvetica", "normal");
-    doc.text(new Date(request.renewalDate || renewalDate).toLocaleDateString(), 60, startY + lh * 3);
-    
-    doc.setFont("helvetica", "bold");
-    doc.text("Total Amount:", 20, startY + lh * 4);
-    doc.setFont("helvetica", "normal");
-    doc.text(`£${request.soldPrice}`, 60, startY + lh * 4);
-    
-    doc.setFont("helvetica", "bold");
-    doc.text("Status:", 20, startY + lh * 5);
-    doc.setFont("helvetica", "normal");
-    doc.text(request.paymentStatus || "Pending", 60, startY + lh * 5);
-    
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "italic");
-    doc.text("Thank you for your business!", 20, startY + lh * 7);
-    
-    doc.save(`Invoice_${request.fullName.replace(/\s+/g, "_")}.pdf`);
+    generateInvoicePDF(customer, subscription, formatCurrency, formatDate);
     showToast("PDF Invoice generated!", "success");
   };
 
@@ -274,7 +413,20 @@ Thank you for your business!`;
       showToast("No WhatsApp number provided for this request.", "error");
       return;
     }
-    const text = getInvoiceText();
+
+    let text = "";
+    // If approved and we have a linked item, offer fulfillment text instead?
+    // Actually, let's stick to the user's request: they want the code in the message.
+    if (request.status === "Approved" && linkedInventoryItem && linkedSubscription) {
+      text = getFulfilmentWhatsAppText(
+        { fullName: request.fullName } as Customer, 
+        linkedSubscription, 
+        linkedInventoryItem.codeOrLink
+      );
+    } else {
+      text = getInvoiceText(linkedInventoryItem?.codeOrLink);
+    }
+
     const cleanNumber = request.whatsappNumber.replace(/[^0-9]/g, '');
     const url = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
@@ -317,7 +469,7 @@ Thank you for your business!`;
                 {request.status}
               </span>
             </div>
-            <p className="text-sm font-medium text-slate-500 mt-1">Submitted on {new Date(request.createdAt).toLocaleDateString()}</p>
+            <p className="text-sm font-medium text-slate-500 mt-1">Submitted on {formatDate(request.createdAt)}</p>
           </div>
         </div>
         
@@ -328,15 +480,25 @@ Thank you for your business!`;
                className="px-4 py-2 bg-white text-indigo-600 border border-indigo-200 rounded-xl font-bold flex items-center hover:bg-indigo-50 shadow-sm transition"
              >
                <FileText className="w-4 h-4 mr-2" />
-               Download PDF Invoice
+               PDF Invoice
              </button>
-             <button 
-               onClick={handleWhatsAppLink}
-               className="px-4 py-2 bg-emerald-500 text-white rounded-xl font-bold flex items-center shadow-lg hover:bg-emerald-600 hover:shadow-emerald-500/25 transition"
-             >
-               <MessageSquare className="w-4 h-4 mr-2" />
-               WhatsApp Link
-             </button>
+             {linkedInventoryItem ? (
+               <button 
+                 onClick={handleWhatsAppLink}
+                 className="px-4 py-2 bg-emerald-500 text-white rounded-xl font-bold flex items-center shadow-lg hover:bg-emerald-600 hover:shadow-emerald-500/25 transition"
+               >
+                 <Zap className="w-4 h-4 mr-2" />
+                 Send Activation
+               </button>
+             ) : (
+               <button 
+                 onClick={handleWhatsAppLink}
+                 className="px-4 py-2 bg-emerald-500 text-white rounded-xl font-bold flex items-center shadow-lg hover:bg-emerald-600 hover:shadow-emerald-500/25 transition"
+               >
+                 <MessageSquare className="w-4 h-4 mr-2" />
+                 WhatsApp Invoice
+               </button>
+             )}
           </div>
         )}
       </div>
@@ -404,13 +566,30 @@ Thank you for your business!`;
                   {request.status === "Pending" ? (
                     <select
                       value={subscriptionType}
-                      onChange={e => setSubscriptionType(e.target.value as any)}
-                      className="w-full text-sm font-bold text-indigo-600 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-indigo-500"
+                      onChange={e => {
+                        const newType = e.target.value;
+                        setSubscriptionType(newType);
+                        
+                        // Auto-select default duration for the new type
+                        const typeObj = managedTypes.find(t => t.name === newType);
+                        const defaultDur = typeObj?.durations.find(d => d.isDefault && d.active);
+                        const firstActive = typeObj?.durations.find(d => d.active);
+                        const durToUse = defaultDur || firstActive;
+                        if (durToUse) {
+                          setSubscriptionPeriod(`${durToUse.months}M`);
+                          setSoldPrice(durToUse.defaultPrice.toFixed(2));
+                        }
+                      }}
+                      disabled={loadingTypes}
+                      className="w-full text-sm font-bold text-indigo-600 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
                     >
-                      {SUBSCRIPTION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                      <option value="">{loadingTypes ? "Loading..." : "Select Product"}</option>
+                      {managedTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                     </select>
                   ) : (
-                    <div className="font-bold text-indigo-600">{request.subscriptionType || 'N/A'}</div>
+                    <div className="font-bold text-indigo-600">
+                      {request.subscriptionTypeName || request.subscriptionType || 'N/A'}
+                    </div>
                   )}
                 </div>
                 <div>
@@ -418,16 +597,36 @@ Thank you for your business!`;
                   {request.status === "Pending" ? (
                     <select
                       value={subscriptionPeriod}
-                      onChange={e => setSubscriptionPeriod(e.target.value as any)}
-                      className="w-full text-sm font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-indigo-500"
+                      onChange={e => {
+                        const newPeriod = e.target.value;
+                        setSubscriptionPeriod(newPeriod);
+                        
+                        // Update price
+                        const months = parseInt(newPeriod.replace(/\D/g, ""));
+                        const typeObj = managedTypes.find(t => t.name === subscriptionType);
+                        const durObj = typeObj?.durations.find(d => d.months === months);
+                        if (durObj?.defaultPrice) {
+                          setSoldPrice(durObj.defaultPrice.toFixed(2));
+                        }
+                      }}
+                      disabled={!subscriptionType || loadingTypes}
+                      className="w-full text-sm font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
                     >
-                      <option value="1M">1 Month</option>
-                      <option value="3M">3 Months</option>
-                      <option value="6M">6 Months</option>
-                      <option value="12M">12 Months</option>
+                      <option value="">Select</option>
+                      {managedTypes
+                        .find(t => t.name === subscriptionType)
+                        ?.durations.filter(d => d.active)
+                        .sort((a, b) => a.sortOrder - b.sortOrder)
+                        .map(dur => (
+                          <option key={dur.id} value={`${dur.months}M`}>
+                            {dur.label} {dur.badgeText ? `(${dur.badgeText})` : ""}
+                          </option>
+                        ))}
                     </select>
                   ) : (
-                    <div className="font-medium text-slate-700">{request.subscriptionPeriod || 'N/A'} plan</div>
+                    <div className="font-medium text-slate-700">
+                      {request.durationLabel || request.subscriptionPeriod || 'N/A'}
+                    </div>
                   )}
                 </div>
               </div>
@@ -453,9 +652,9 @@ Thank you for your business!`;
           <div className="space-y-6 flex-1">
             <div className="grid grid-cols-2 gap-4">
                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Agreed Price (£) *</label>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Agreed Price ({formatCurrency(0).replace(/[0-9.]/g, '')}) *</label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium pb-0.5">£</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium pb-0.5">{formatCurrency(0).replace(/[0-9.]/g, '')}</span>
                     <input
                       type="number"
                       value={soldPrice}
@@ -552,21 +751,84 @@ Thank you for your business!`;
           )}
           
           {request.status === "Approved" && (
-            <div className="pt-6 mt-6 border-t border-emerald-100 bg-emerald-50 rounded-xl p-4 flex items-start gap-3">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 mt-0.5" />
-              <div>
-                <p className="text-sm font-bold text-emerald-800">Request Converted</p>
-                <p className="text-xs text-emerald-600 mt-1">This request has been successfully converted into a Customer and Subscription record in your CRM.</p>
+            <div className="pt-6 mt-6 border-t border-emerald-100 bg-emerald-50 rounded-xl p-4 space-y-4">
+              <div className="flex items-start gap-3">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 mt-0.5" />
+                <div>
+                  <p className="text-sm font-bold text-emerald-800">Request Converted</p>
+                  <p className="text-xs text-emerald-600 mt-1">This request has been successfully converted into a Customer and Subscription record.</p>
+                </div>
+              </div>
+
+              {linkedInventoryItem && (
+                <div className="bg-white/50 border border-emerald-200 rounded-xl p-3 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-emerald-100 text-emerald-600 rounded-lg flex items-center justify-center">
+                      <Zap className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Assignment</p>
+                      <code className="text-xs font-mono font-bold text-slate-700">{linkedInventoryItem.codeOrLink}</code>
+                    </div>
+                  </div>
+                  {isFetchingLinked && <RefreshCw className="w-4 h-4 text-emerald-400 animate-spin" />}
+                </div>
+              )}
+            </div>
+          )}
+
+          {request.status === "Rejected" && !request.archived && (
+            <div className="pt-6 mt-6 border-t border-rose-100 bg-rose-50 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                 <XCircle className="w-5 h-5 text-rose-600 mt-0.5" />
+                 <div>
+                  <p className="text-sm font-bold text-rose-800">Request Rejected</p>
+                  <p className="text-xs text-rose-600 mt-1">This request was rejected but is still visible in your active list.</p>
+                </div>
+              </div>
+              <div className="mt-4 flex gap-3">
+                <button
+                  onClick={() => handleAction('restore')}
+                  disabled={isProcessing}
+                  className="flex-1 py-2 bg-white border border-slate-200 text-emerald-600 font-bold text-sm rounded-lg hover:bg-emerald-50 hover:border-emerald-200 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" /> Restore
+                </button>
+                <button
+                  onClick={() => handleAction('archive')}
+                  disabled={isProcessing}
+                  className="flex-1 py-2 bg-white border border-slate-200 text-rose-600 font-bold text-sm rounded-lg hover:bg-rose-50 hover:border-rose-200 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <Archive className="w-4 h-4" /> Archive
+                </button>
               </div>
             </div>
           )}
 
-          {request.status === "Rejected" && (
-            <div className="pt-6 mt-6 border-t border-rose-100 bg-rose-50 rounded-xl p-4 flex items-start gap-3">
-               <XCircle className="w-5 h-5 text-rose-600 mt-0.5" />
-               <div>
-                <p className="text-sm font-bold text-rose-800">Request Rejected</p>
-                <p className="text-xs text-rose-600 mt-1">This request was rejected and archived.</p>
+          {request.archived && (
+            <div className="pt-6 mt-6 border-t border-slate-200 bg-slate-50 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                 <Archive className="w-5 h-5 text-slate-500 mt-0.5" />
+                 <div>
+                  <p className="text-sm font-bold text-slate-800">Request Archived</p>
+                  <p className="text-xs text-slate-600 mt-1">This request has been archived and hidden from the main list.</p>
+                </div>
+              </div>
+              <div className="mt-4 flex gap-3">
+                <button
+                  onClick={() => handleAction('restore')}
+                  disabled={isProcessing}
+                  className="flex-1 py-2 bg-white border border-slate-200 text-emerald-600 font-bold text-sm rounded-lg hover:bg-emerald-50 hover:border-emerald-200 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" /> Restore
+                </button>
+                <button
+                  onClick={() => handleAction('delete')}
+                  disabled={isProcessing}
+                  className="flex-1 py-2 bg-rose-600 text-white font-bold text-sm rounded-lg hover:bg-rose-700 shadow-sm shadow-rose-600/20 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <Trash2 className="w-4 h-4" /> Delete
+                </button>
               </div>
             </div>
           )}
